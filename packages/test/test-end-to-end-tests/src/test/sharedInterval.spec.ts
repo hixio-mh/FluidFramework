@@ -59,6 +59,25 @@ function testIntervalCollection(intervalCollection: IntervalCollection<SequenceI
     }
 
     const intervalArray: SequenceInterval[] = [];
+
+    intervalArray[0] = intervalCollection.add(0, 0, IntervalType.SlideOnRemove);
+    intervalArray[1] = intervalCollection.add(0, 0, IntervalType.SlideOnRemove);
+    assert.notStrictEqual(intervalArray[0], intervalArray[1]);
+    intervalCollection.delete(0, 0);
+    let interval: SequenceInterval;
+    let id = intervalArray[0].getIntervalId();
+    assert.notStrictEqual(id, undefined);
+    if (id) {
+        interval = intervalCollection.getIntervalById(id);
+        assert.strictEqual(interval, undefined);
+    }
+    id = intervalArray[1].getIntervalId();
+    assert.notStrictEqual(id, undefined);
+    if (id) {
+        interval = intervalCollection.getIntervalById(id);
+        assert.strictEqual(interval, undefined);
+    }
+
     intervalArray[0] = intervalCollection.add(0, 0, IntervalType.SlideOnRemove);
     intervalArray[1] = intervalCollection.add(0, 1, IntervalType.SlideOnRemove);
     intervalArray[2] = intervalCollection.add(0, 2, IntervalType.SlideOnRemove);
@@ -77,7 +96,7 @@ function testIntervalCollection(intervalCollection: IntervalCollection<SequenceI
     tempArray[1] = intervalArray[4];
     tempArray[2] = intervalArray[5];
     for (i = 0, result = iterator.next(); !result.done; i++, result = iterator.next()) {
-        const interval = result.value;
+        interval = result.value;
         assert.strictEqual(interval, tempArray[i], "Mismatch in forward iteration with start position");
     }
     assert.strictEqual(i, tempArray.length, "Interval omitted from forward iteration with start position");
@@ -88,7 +107,7 @@ function testIntervalCollection(intervalCollection: IntervalCollection<SequenceI
     tempArray[1] = intervalArray[1];
     tempArray[2] = intervalArray[0];
     for (i = 0, result = iterator.next(); !result.done; i++, result = iterator.next()) {
-        const interval = result.value;
+        interval = result.value;
         assert.strictEqual(interval, tempArray[i], "Mismatch in backward iteration with start position");
     }
     assert.strictEqual(i, tempArray.length, "Interval omitted from backward iteration with start position");
@@ -99,7 +118,7 @@ function testIntervalCollection(intervalCollection: IntervalCollection<SequenceI
     tempArray[1] = intervalArray[4];
     tempArray[2] = intervalArray[1];
     for (i = 0, result = iterator.next(); !result.done; i++, result = iterator.next()) {
-        const interval = result.value;
+        interval = result.value;
         assert.strictEqual(interval, tempArray[i], "Mismatch in backward iteration with end position");
     }
     assert.strictEqual(i, tempArray.length, "Interval omitted from backward iteration with end position");
@@ -124,11 +143,39 @@ function testIntervalCollection(intervalCollection: IntervalCollection<SequenceI
         assert(false, "Iterator with OOB position should not produce a result");
     }
 
-    for (const interval of intervalCollection) {
+    for (interval of intervalCollection) {
         assert.strictEqual(interval, intervalArray[i], "Mismatch in for...of iteration of collection");
         i++;
     }
     assert.strictEqual(i, intervalArray.length, "Interval omitted from for...of iteration");
+
+    if (intervalArray[0]) {
+        id = intervalArray[0].getIntervalId();
+        assert.notStrictEqual(id, undefined, "Unique Id should have been assigned");
+        if (id !== undefined) {
+            interval = intervalCollection.getIntervalById(id);
+            assert.strictEqual(interval, intervalArray[0]);
+            interval = intervalCollection.removeIntervalById(id);
+            assert.strictEqual(interval, intervalArray[0]);
+            interval = intervalCollection.getIntervalById(id);
+            assert.strictEqual(interval, undefined);
+            interval = intervalCollection.removeIntervalById(id);
+            assert.strictEqual(interval, undefined);
+        }
+
+        id = intervalArray[intervalArray.length - 1].getIntervalId();
+        assert.notStrictEqual(id, undefined, "Unique Id should have been assigned");
+        if (id !== undefined) {
+            interval = intervalCollection.getIntervalById(id);
+            assert.strictEqual(interval, intervalArray[intervalArray.length - 1]);
+            interval = intervalCollection.removeIntervalById(id);
+            assert.strictEqual(interval, intervalArray[intervalArray.length - 1]);
+            interval = intervalCollection.getIntervalById(id);
+            assert.strictEqual(interval, undefined);
+            interval = intervalCollection.removeIntervalById(id);
+            assert.strictEqual(interval, undefined);
+        }
+    }
 
     intervalCollection.delete(0, 0);
     intervalCollection.delete(0, 1);
