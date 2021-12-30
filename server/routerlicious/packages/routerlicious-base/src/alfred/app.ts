@@ -23,8 +23,8 @@ import * as winston from "winston";
 import { IAlfredTenant } from "@fluidframework/server-services-client";
 import { bindCorrelationId } from "@fluidframework/server-services-utils";
 import { RestLessServer } from "@fluidframework/server-services";
-import { logRequestMetric } from "@fluidframework/server-services-telemetry";
-import { catch404, getDocumentIdFromRequest, getTenantIdFromRequest, handleError } from "../utils";
+import { logRequestMetric, Lumberjack } from "@fluidframework/server-services-telemetry";
+import { catch404, getIdFromRequest, getTenantIdFromRequest, handleError } from "../utils";
 import * as alfredRoutes from "./routes";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
@@ -36,6 +36,7 @@ const split = require("split");
 const stream = split().on("data", (message) => {
     if (message !== undefined) {
         winston.info(message);
+        Lumberjack.info(message);
     }
 });
 
@@ -46,8 +47,9 @@ export function create(
     singleUseTokenCache: ICache,
     storage: IDocumentStorage,
     appTenants: IAlfredTenant[],
-    mongoManager: MongoManager,
-    producer: IProducer) {
+    operationsDbMongoManager: MongoManager,
+    producer: IProducer,
+    globalDbMongoManager?: MongoManager) {
     // Maximum REST request size
     const requestSize = config.get("alfred:restJsonSize");
 
@@ -75,12 +77,13 @@ export function create(
         app.use(morgan((tokens, req, res) => {
             const messageMetaData = {
                 method: tokens.method(req, res),
+                pathCategory: `${req.baseUrl}${req.route ? req.route.path : "PATH_UNAVAILABLE"}`,
                 url: tokens.url(req, res),
                 status: tokens.status(req, res),
                 contentLength: tokens.res(req, res, "content-length"),
                 durationInMs: tokens["response-time"](req, res),
                 tenantId: getTenantIdFromRequest(req.params),
-                documentId: getDocumentIdFromRequest(req.params),
+                documentId: getIdFromRequest(req.params),
                 serviceName: "alfred",
                 eventName: "http_requests",
              };
@@ -104,10 +107,11 @@ export function create(
         tenantManager,
         throttler,
         singleUseTokenCache,
-        mongoManager,
+        operationsDbMongoManager,
         storage,
         producer,
-        appTenants);
+        appTenants,
+        globalDbMongoManager);
 
     app.use("/public", cors(), express.static(path.join(__dirname, "../../public")));
     app.use(routes.api);

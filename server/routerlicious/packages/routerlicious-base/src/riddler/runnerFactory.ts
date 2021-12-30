@@ -5,6 +5,7 @@
 
 import * as services from "@fluidframework/server-services";
 import { getOrCreateRepository } from "@fluidframework/server-services-client";
+import { BaseTelemetryProperties, Lumberjack } from "@fluidframework/server-services-telemetry";
 import {
     MongoManager,
     ISecretManager,
@@ -12,6 +13,7 @@ import {
     IResourcesFactory,
     IRunner,
     IRunnerFactory,
+    IWebServerFactory,
 } from "@fluidframework/server-services-core";
 import * as utils from "@fluidframework/server-services-utils";
 import { Provider } from "nconf";
@@ -20,7 +22,10 @@ import { RiddlerRunner } from "./runner";
 import { ITenantDocument } from "./tenantManager";
 
 export class RiddlerResources implements IResources {
+    public webServerFactory: IWebServerFactory;
+
     constructor(
+        public readonly config: Provider,
         public readonly tenantsCollectionName: string,
         public readonly mongoManager: MongoManager,
         public readonly port: any,
@@ -30,6 +35,8 @@ export class RiddlerResources implements IResources {
         public readonly defaultInternalHistorianUrl: string,
         public readonly secretManager: ISecretManager,
     ) {
+        const httpServerConfig: services.IHttpServerConfig = config.get("system:httpServer");
+        this.webServerFactory = new services.BasicWebServerFactory(httpServerConfig);
     }
 
     public async dispose(): Promise<void> {
@@ -40,8 +47,9 @@ export class RiddlerResources implements IResources {
 export class RiddlerResourcesFactory implements IResourcesFactory<RiddlerResources> {
     public async create(config: Provider): Promise<RiddlerResources> {
         // Database connection
-        const mongoUrl = config.get("mongo:endpoint") as string;
-        const mongoFactory = new services.MongoDbFactory(mongoUrl);
+        const mongoUrl = config.get("mongo:operationsDbEndpoint") as string;
+        const bufferMaxEntries = config.get("mongo:bufferMaxEntries") as number | undefined;
+        const mongoFactory = new services.MongoDbFactory(mongoUrl, bufferMaxEntries);
         const mongoManager = new MongoManager(mongoFactory);
         const tenantsCollectionName = config.get("mongo:collectionNames:tenants");
         const secretManager = new services.SecretManager();
@@ -62,6 +70,7 @@ export class RiddlerResourcesFactory implements IResourcesFactory<RiddlerResourc
                 } catch (err) {
                     // This is okay to fail since the repos are alreay created in production.
                     winston.error(`Error creating repos`);
+                    Lumberjack.error(`Error creating repos`, { [BaseTelemetryProperties.tenantId]: tenant._id }, err);
                 }
             }
         });
@@ -74,6 +83,7 @@ export class RiddlerResourcesFactory implements IResourcesFactory<RiddlerResourc
         const defaultInternalHistorianUrl = config.get("worker:internalBlobStorageUrl") || defaultHistorianUrl;
 
         return new RiddlerResources(
+            config,
             tenantsCollectionName,
             mongoManager,
             port,
@@ -88,6 +98,7 @@ export class RiddlerResourcesFactory implements IResourcesFactory<RiddlerResourc
 export class RiddlerRunnerFactory implements IRunnerFactory<RiddlerResources> {
     public async create(resources: RiddlerResources): Promise<IRunner> {
         return new RiddlerRunner(
+            resources.webServerFactory,
             resources.tenantsCollectionName,
             resources.port,
             resources.mongoManager,

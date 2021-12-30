@@ -6,14 +6,16 @@
 import { IDisposable, IEvent, IEventProvider, ITelemetryLogger } from "@fluidframework/common-definitions";
 import { TypedEventEmitter, assert } from "@fluidframework/common-utils";
 import { ChildLogger, PerformanceEvent } from "@fluidframework/telemetry-utils";
-import { IFluidRouter, IRequest } from "@fluidframework/core-interfaces";
-import { LoaderHeader } from "@fluidframework/container-definitions";
-import { DriverHeader } from "@fluidframework/driver-definitions";
-import { requestFluidObject } from "@fluidframework/runtime-utils";
+import { DriverErrorType } from "@fluidframework/driver-definitions";
 import { createSummarizingWarning } from "./summarizer";
-import { ISummarizerClientElection, summarizerClientType } from "./summarizerClientElection";
+import { ISummarizerClientElection } from "./summarizerClientElection";
 import { IThrottler } from "./throttler";
-import { ISummarizer, ISummarizerOptions, ISummarizingWarning, SummarizerStopReason } from "./summarizerTypes";
+import {
+    ISummarizer,
+    ISummarizerOptions,
+    ISummarizingWarning,
+    SummarizerStopReason,
+} from "./summarizerTypes";
 import { SummaryCollection } from "./summaryCollection";
 
 const defaultInitialDelayMs = 5000;
@@ -236,7 +238,16 @@ export class SummaryManager extends TypedEventEmitter<ISummaryManagerEvents> imp
             // We could add error.fluidErrorCode !== "containerClosedWithoutErrorDuringLoad" check to narrow it down,
             // but that does not seem to be necessary.
             if (this.getShouldSummarizeState().shouldSummarize || this.summarizer !== undefined) {
-                this.logger.sendErrorEvent({ eventName: "SummarizerException" }, error);
+                // Report any failure as an error unless it was due to cancellation (like "disconnected" error)
+                // If failure happened on container load, we may not yet realized that socket disconnected, so check
+                // offlineError.
+                const category = error?.errorType === DriverErrorType.offlineError ? "generic" : "error";
+                this.logger.sendTelemetryEvent(
+                    {
+                        eventName: "SummarizerException",
+                        category,
+                    },
+                    error);
                 this.emit("summarizerWarning", error);
 
                 // Note that summarizer may keep going (like doing last summary).
@@ -357,47 +368,3 @@ export class SummaryManager extends TypedEventEmitter<ISummaryManagerEvents> imp
         this._disposed = true;
     }
 }
-
-export interface ISummarizerRequestOptions {
-    cache: boolean,
-    reconnect: boolean,
-    summarizingClient: boolean,
-}
-
-/**
- * Forms a function that will request a Summarizer.
- * @param loaderRouter - the loader acting as an IFluidRouter
- * @param lastSequenceNumber - the last sequence number (e.g., from DeltaManager)
- * @param cache - use cache to retrieve summarizer
- * @param summarizingClient - is summarizer client
- * @param reconnect - can reconnect on connection loss
- */
-export const formRequestSummarizerFn = (
-    loaderRouter: IFluidRouter,
-    lastSequenceNumber: number,
-    { cache, reconnect, summarizingClient }: ISummarizerRequestOptions,
-) => async () => {
-    // TODO eventually we may wish to spawn an execution context from which to run this
-    const request: IRequest = {
-        headers: {
-            [LoaderHeader.cache]: cache,
-            [LoaderHeader.clientDetails]: {
-                capabilities: { interactive: false },
-                type: summarizerClientType,
-            },
-            [DriverHeader.summarizingClient]: summarizingClient,
-            [LoaderHeader.reconnect]: reconnect,
-            [LoaderHeader.sequenceNumber]: lastSequenceNumber,
-        },
-        url: "/_summarizer",
-    };
-
-    const fluidObject = await requestFluidObject(loaderRouter, request);
-    const summarizer = fluidObject.ISummarizer;
-
-    if (!summarizer) {
-        return Promise.reject(new Error("Fluid object does not implement ISummarizer"));
-    }
-
-    return summarizer;
-};

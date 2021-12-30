@@ -23,7 +23,7 @@ import {
 } from "@fluidframework/server-services-core";
 import { generateServiceProtocolEntries } from "@fluidframework/protocol-base";
 import { FileMode } from "@fluidframework/protocol-definitions";
-import { IGitManager } from "@fluidframework/server-services-client";
+import { defaultHash, IGitManager } from "@fluidframework/server-services-client";
 import { Lumber, LumberEventName } from "@fluidframework/server-services-telemetry";
 import { NoOpLambda, createSessionMetric } from "../utils";
 import { DeliLambda } from "./lambda";
@@ -38,6 +38,7 @@ const getDefaultCheckpooint = (epoch: number): IDeliState => {
         clients: undefined,
         durableSequenceNumber: 0,
         epoch,
+        expHash1: defaultHash,
         logOffset: -1,
         sequenceNumber: 0,
         term: 1,
@@ -49,12 +50,13 @@ const getDefaultCheckpooint = (epoch: number): IDeliState => {
 
 export class DeliLambdaFactory extends EventEmitter implements IPartitionLambdaFactory {
     constructor(
-        private readonly mongoManager: MongoManager,
+        private readonly operationsDbMongoManager: MongoManager,
         private readonly collection: ICollection<IDocument>,
         private readonly tenantManager: ITenantManager,
         private readonly forwardProducer: IProducer,
         private readonly reverseProducer: IProducer,
-        private readonly serviceConfiguration: IServiceConfiguration) {
+        private readonly serviceConfiguration: IServiceConfiguration,
+        globalDbMongoManager?: MongoManager) {
         super();
     }
 
@@ -174,7 +176,7 @@ export class DeliLambdaFactory extends EventEmitter implements IPartitionLambdaF
     }
 
     public async dispose(): Promise<void> {
-        const mongoClosedP = this.mongoManager.close();
+        const mongoClosedP = this.operationsDbMongoManager.close();
         const forwardProducerClosedP = this.forwardProducer.close();
         const reverseProducerClosedP = this.reverseProducer.close();
         await Promise.all([mongoClosedP, forwardProducerClosedP, reverseProducerClosedP]);

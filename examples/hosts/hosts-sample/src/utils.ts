@@ -3,8 +3,9 @@
  * Licensed under the MIT License.
  */
 
-import { IFluidCodeDetails, IFluidObject, IFluidPackage } from "@fluidframework/core-interfaces";
-import { Container, Loader } from "@fluidframework/container-loader";
+import { IFluidCodeDetails, FluidObject, IFluidPackage } from "@fluidframework/core-interfaces";
+import { IContainer } from "@fluidframework/container-definitions";
+import { Loader } from "@fluidframework/container-loader";
 import { IFluidHTMLView } from "@fluidframework/view-interfaces";
 import { extractPackageIdentifierDetails } from "@fluidframework/web-code-loader";
 
@@ -19,7 +20,7 @@ async function getFluidObjectAndRenderCore(loader: Loader, url: string, div: HTM
         return;
     }
 
-    const fluidObject = response.value as IFluidObject;
+    const fluidObject: FluidObject<IFluidHTMLView> = response.value;
     // Try to render the Fluid object if it is a view
     const view: IFluidHTMLView | undefined = fluidObject.IFluidHTMLView;
     if (view !== undefined) {
@@ -32,7 +33,7 @@ async function getFluidObjectAndRenderCore(loader: Loader, url: string, div: HTM
  * on the document it listens for the "contextChanged" event which fires when a new code value is quorumed on. In this
  * case it simply runs the attach method again.
  */
-export async function getFluidObjectAndRender(loader: Loader, container: Container, url: string, div: HTMLDivElement) {
+export async function getFluidObjectAndRender(loader: Loader, container: IContainer, url: string, div: HTMLDivElement) {
     container.on("contextChanged", (codeDetails) => {
         console.log("Context changed", codeDetails);
         // eslint-disable-next-line @typescript-eslint/no-floating-promises
@@ -53,7 +54,7 @@ export function parsePackageDetails(pkg: string | Readonly<IFluidPackage>) {
 }
 
 /** Retrieve the code proposal value from the container's quorum */
-export function getCodeDetailsFromQuorum(container: Container): IFluidCodeDetails {
+export function getCodeDetailsFromQuorum(container: IContainer): IFluidCodeDetails {
     const pkg = container.getQuorum().get("code");
     return pkg as IFluidCodeDetails;
 }

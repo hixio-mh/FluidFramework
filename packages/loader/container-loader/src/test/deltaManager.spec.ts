@@ -11,13 +11,15 @@ import { IClient, IDocumentMessage, MessageType } from "@fluidframework/protocol
 import { MockDocumentDeltaConnection, MockDocumentService } from "@fluidframework/test-loader-utils";
 import { SinonFakeTimers, useFakeTimers } from "sinon";
 import { DeltaManager } from "../deltaManager";
-import { CollabWindowTracker } from "../container";
+import { CollabWindowTracker } from "../collabWindowTracker";
+import { IConnectionManagerFactoryArgs } from "../contracts";
+import { ConnectionManager } from "../connectionManager";
 
 describe("Loader", () => {
     describe("Container Loader", () => {
         describe("Delta Manager", () => {
             let clock: SinonFakeTimers;
-            let deltaManager: DeltaManager;
+            let deltaManager: DeltaManager<ConnectionManager>;
             let logger: ITelemetryLogger;
             let deltaConnection: MockDocumentDeltaConnection;
             let clientSeqNumber = 0;
@@ -34,16 +36,28 @@ describe("Loader", () => {
             async function startDeltaManager(reconnectAllowed = true) {
                 const service = new MockDocumentService(
                     undefined,
-                    () => deltaConnection,
+                    () => {
+                        // Always create new connection, as reusing old closed connection
+                        // Forces DM into infinite reconnection loop.
+                        deltaConnection = new MockDocumentDeltaConnection(
+                            "test",
+                            (messages) => emitter.emit(submitEvent, messages),
+                        );
+                        return deltaConnection;
+                    },
                 );
                 const client: Partial<IClient> = { mode: "write", details: { capabilities: { interactive: true } } };
 
-                deltaManager = new DeltaManager(
+                deltaManager = new DeltaManager<ConnectionManager>(
                     () => service,
-                    client as IClient,
                     logger,
-                    reconnectAllowed,
                     () => false,
+                    (props: IConnectionManagerFactoryArgs) => new ConnectionManager(
+                        () => service,
+                        client as IClient,
+                        reconnectAllowed,
+                        logger,
+                        props),
                 );
 
                 const tracker = new CollabWindowTracker(
@@ -62,7 +76,10 @@ describe("Loader", () => {
                     processSignal() { },
                 });
 
-                await deltaManager.connect({ reason: "test" });
+                await new Promise((accept) => {
+                    deltaManager.on("connect", accept);
+                    deltaManager.connect({ reason: "test" });
+                });
             }
 
             // function to yield control in the Javascript event loop.
@@ -74,6 +91,7 @@ describe("Loader", () => {
 
             async function emitSequentialOps(type: MessageType = MessageType.Operation, count = 1) {
                 for (let num = 0; num < count; ++num) {
+                    assert(!deltaConnection.disposed, "disposed");
                     deltaConnection.emitOp(docId, [{
                         clientId: "Some client ID",
                         clientSequenceNumber: ++clientSeqNumber,
@@ -104,10 +122,6 @@ describe("Loader", () => {
                 emitter = new EventEmitter();
                 immediateNoOp = false;
 
-                deltaConnection = new MockDocumentDeltaConnection(
-                    "test",
-                    (messages) => emitter.emit(submitEvent, messages),
-                );
                 clientSeqNumber = 0;
             });
 
@@ -229,13 +243,13 @@ describe("Loader", () => {
                 it("Should override readonly", async () => {
                     await startDeltaManager();
 
-                    assert.strictEqual(deltaManager.readonly, false);
+                    assert.strictEqual(deltaManager.readOnlyInfo.readonly, false);
 
-                    deltaManager.forceReadonly(true);
-                    assert.strictEqual(deltaManager.readonly, true);
+                    deltaManager.connectionManager.forceReadonly(true);
+                    assert.strictEqual(deltaManager.readOnlyInfo.readonly, true);
 
-                    deltaManager.forceReadonly(false);
-                    assert.strictEqual(deltaManager.readonly, false);
+                    deltaManager.connectionManager.forceReadonly(false);
+                    assert.strictEqual(deltaManager.readOnlyInfo.readonly, false);
                 });
 
                 it("Should raise readonly event when container was not readonly", async () => {
@@ -247,7 +261,7 @@ describe("Loader", () => {
                         runCount++;
                     });
 
-                    deltaManager.forceReadonly(true);
+                    deltaManager.connectionManager.forceReadonly(true);
                     assert.strictEqual(runCount, 1);
                 });
 
@@ -255,14 +269,14 @@ describe("Loader", () => {
                     await startDeltaManager(false /* startDeltaManager */);
 
                     // Closing underlying connection makes container readonly
-                    deltaConnection.close();
-                    assert.strictEqual(deltaManager.readonly, true);
+                    deltaConnection.dispose();
+                    assert.strictEqual(deltaManager.readOnlyInfo.readonly, true);
 
                     deltaManager.on("readonly", () => {
                         assert.fail("Shouldn't be called");
                     });
 
-                    deltaManager.forceReadonly(true);
+                    deltaManager.connectionManager.forceReadonly(true);
                 });
             });
         });

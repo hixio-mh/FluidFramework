@@ -1,16 +1,24 @@
 {
     "logger": {
         "colorize": true,
-        "morganFormat": "dev",
+        "morganFormat": "json",
         "json": false,
         "level": "info",
         "timestamp": true,
         "label": "winston"
     },
     "mongo": {
-        "endpoint": "mongodb://mongodb:27017",
+        "operationsDbEndpoint": "mongodb://mongodb:27017",
+        "globalDbEndpoint": "mongodb://mongodb:27017",
+        "globalDbEnabled": false,
         "expireAfterSeconds": -1,
         "createCosmosDBIndexes": false,
+        "bufferMaxEntries": 50,
+        "softDeletionRetentionPeriodMs": 2592000000,
+        "offlineWindowMs": 86400000,
+        "softDeletionEnabled": false,
+        "permanentDeletionEnabled": false,
+        "deletionIntervalMs": 3600000,
         "collectionNames": {
             "deltas": "deltas",
             "rawdeltas": "rawdeltas",
@@ -107,6 +115,9 @@
         "kafkaClientId": "scribe"
     },
     "system": {
+        "httpServer": {
+            "connectionTimeoutMs": 0
+        },
         "topics": {
             "send": "deltas"
         }

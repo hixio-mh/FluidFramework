@@ -23,10 +23,31 @@ import {
     ScopeType,
 } from "@fluidframework/protocol-definitions";
 import { IDisposable, ITelemetryLogger } from "@fluidframework/common-definitions";
-import { ChildLogger } from "@fluidframework/telemetry-utils";
+import { ChildLogger, loggerToMonitoringContext, MonitoringContext } from "@fluidframework/telemetry-utils";
 
 // Local storage key to disable the BatchManager
-const batchManagerDisabledKey = "FluidDisableBatchManager";
+const batchManagerDisabledKey = "Fluid.Driver.BaseDocumentDeltaConnection.DisableBatchManager";
+
+// See #8129.
+// Need to move to common-utils (tracked as #8165)
+// Borrowed from https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Errors/Cyclic_object_value#examples
+// Avoids runtime errors with circular references.
+// Not ideal, as will cut values that are not necessarily circular references.
+// Could be improved by implementing Node's util.inspect() for browser (minus all the coloring code)
+const getCircularReplacer = () => {
+    const seen = new WeakSet();
+    return (key: string, value: any): any => {
+        // eslint-disable-next-line no-null/no-null
+        if (typeof value === "object" && value !== null) {
+            if (seen.has(value)) {
+                return "<removed/circular>";
+            }
+            seen.add(value);
+        }
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+        return value;
+    };
+};
 
 /**
  * Represents a connection to a stream of delta updates
@@ -82,8 +103,14 @@ export class DocumentDeltaConnection
      * After disconnection, we flip this to prevent any stale messages from being emitted.
      */
     protected _disposed: boolean = false;
-    protected readonly logger: ITelemetryLogger;
+    private readonly mc: MonitoringContext;
     protected readonly isBatchManagerDisabled: boolean = false;
+    /**
+     * @deprecated - Implementors should manage their own logger or monitoring context
+     */
+    protected get logger(): ITelemetryLogger {
+        return this.mc.logger;
+    }
 
     public get details(): IConnected {
         if (!this._details) {
@@ -103,7 +130,8 @@ export class DocumentDeltaConnection
     ) {
         super();
 
-        this.logger = ChildLogger.create(logger, "DeltaConnection");
+        this.mc = loggerToMonitoringContext(
+            ChildLogger.create(logger, "DeltaConnection"));
 
         this.submitManager = new BatchManager<IDocumentMessage[]>(
             (submitType, work) => this.emitMessages(submitType, work));
@@ -136,7 +164,7 @@ export class DocumentDeltaConnection
             }
         });
 
-        this.isBatchManagerDisabled = DocumentDeltaConnection.disabledBatchManagerFeatureGate;
+        this.isBatchManagerDisabled = this.mc.config.getBoolean(batchManagerDisabledKey) === true;
     }
 
     /**
@@ -181,7 +209,7 @@ export class DocumentDeltaConnection
      * @returns the maximum size of a message before chunking is required
      */
     public get maxMessageSize(): number {
-        return this.details.maxMessageSize;
+        return this.details.serviceConfiguration.maxMessageSize;
     }
 
     /**
@@ -267,15 +295,6 @@ export class DocumentDeltaConnection
         }
     }
 
-    private static get disabledBatchManagerFeatureGate() {
-        try {
-            return localStorage !== undefined
-                && typeof localStorage === "object"
-                && localStorage.getItem(batchManagerDisabledKey) === "1";
-        } catch (e) { }
-        return false;
-    }
-
     protected submitCore(type: string, messages: IDocumentMessage[]) {
         if (this.isBatchManagerDisabled) {
             this.emitMessages(type, [messages]);
@@ -312,9 +331,6 @@ export class DocumentDeltaConnection
             false, // socketProtocolError
             createGenericNetworkError("clientClosingConnection", undefined, true /* canRetry */));
     }
-
-    // back-compat: became @deprecated in 0.45 / driver-definitions 0.40
-    public close() { this.dispose(); }
 
     protected disposeCore(socketProtocolError: boolean, err: any) {
         // Can't check this.disposed here, as we get here on socket closure,
@@ -358,6 +374,13 @@ export class DocumentDeltaConnection
 
             // Listen for connection issues
             this.addConnectionListener("connect_error", (error) => {
+                try {
+                    const description = error?.description;
+                    if (description && typeof description === "object") {
+                        // That's a WebSocket. Clear it as we can't log it.
+                        description.target = undefined;
+                    }
+                } catch(_e) {}
                 fail(true, this.createErrorObject("connectError", error));
             });
 
@@ -516,10 +539,14 @@ export class DocumentDeltaConnection
         if (typeof error !== "object") {
             message = `${message}: ${error}`;
         } else if (error?.type === "TransportError") {
+            // JSON.stringify drops Error.message
+            if (error?.message !== undefined) {
+                message = `${message}: ${error.message}`;
+            }
             // Websocket errors reported by engine.io-client.
             // They are Error objects with description containing WS error and description = "TransportError"
             // Please see https://github.com/socketio/engine.io-client/blob/7245b80/lib/transport.ts#L44,
-            message = `${message}: ${JSON.stringify(error)}`;
+            message = `${message}: ${JSON.stringify(error, getCircularReplacer())}`;
         } else {
             message = `${message}: [object omitted]`;
         }

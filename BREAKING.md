@@ -10,13 +10,281 @@ There are a few steps you can take to write a good change note and avoid needing
 - Provide guidance on how the change should be consumed if applicable, such as by specifying replacement APIs.
 - Consider providing code examples as part of guidance for non-trivial changes.
 
+## 0.54 Breaking changes
+- [Removed `readAndParseFromBlobs` from `driver-utils`](#Removed-readAndParseFromBlobs-from-driver-utils)
+- [Loader now returns `IContainer` instead of `Container`](#Loader-now-returns-IContainer-instead-of-Container)
+- [`getQuorum()` returns `IQuorumClients` from within the container](#getQuorum-returns-IQuorumClients-from-within-the-container)
+- [`SharedNumberSequence` and `SharedObjectSequence` deprecated](#SharedNumberSequence-and-SharedObjectSequence-deprecated)
+- [Aqueduct and IFluidDependencySynthesizer changes](#Aqueduct-and-IFluidDependencySynthesizer-changes)
+- [`IContainer` interface updated to complete 0.53 changes](#IContainer-interface-updated-to-complete-0.53-changes)
+
+### Removed `readAndParseFromBlobs` from `driver-utils`
+The `readAndParseFromBlobs` function from `driver-utils` was deprecated in 0.44, and has now been removed from the `driver-utils` package.
+
+### Loader now returns `IContainer` instead of `Container`
+
+The following public API functions on `Loader`, from `"@fluidframework/container-loader"` package, now return `IContainer`:
+- `createDetachedContainer`
+- `rehydrateDetachedContainerFromSnapshot`
+- `resolve`
+
+All of the required functionality from a `Container` instance should be available on `IContainer`. If the function or property you require is not available, please file an issue on GitHub describing which function and what you are planning on using it for. They can still be used by casting the returned object to `Container`, i.e. `const container = await loader.resolve(request) as Container;`, however, this should be avoided whenever possible and the `IContainer` API should be used instead.
+
+### `getQuorum()` returns `IQuorumClients` from within the container
+
+The `getQuorum()` method on `IContainerRuntimeBase`, `IFluidDataStoreContext`, and `IFluidDataStoreRuntime` now returns an `IQuorumClients` rather than an `IQuorum`.  `IQuorumClients` retains the ability to inspect the clients connected to the collaboration session, but removes the ability to access the quorum proposals.  It is not recommended to access the quorum proposals from within the container code.
+
+A future change will similarly convert calls to `getQuorum()` on `IContainer` and `IContainerContext` to return an `IQuorumClients`.  If you need to access the code details on the `IContainer`, you should use the `getSpecifiedCodeDetails()` API instead.  If you are currently accessing the code details on the `IContainerContext`, a temporary `getSpecifiedCodeDetails()` method is exposed there as well to aid in migration.  However, accessing the code details from the container context is not recommended and this migratory API will be removed in an upcoming release.  It is instead recommended to only inspect code details in the code loader while loading code, or on `IContainer` as part of code upgrade scenarios (i.e. when calling `IContainer`'s `proposeCodeDetails()`).  Other uses are not supported.
+
+### `SharedNumberSequence` and `SharedObjectSequence` deprecated
+
+The `SharedNumberSequence` and `SharedObjectSequence` have been deprecated and are not recommended for use.  To discuss future plans to support scenarios involving sequences of objects, please see [Github issue 8526](https://github.com/microsoft/FluidFramework/issues/8526).
+
+Additionally, `useSyncedArray()` from `@fluid-experimental/react` has been removed, as it depended on the `SharedObjectArray`.
+
+### Aqueduct and IFluidDependencySynthesizer changes
+The type `DependencyContainerRegistry` is now deprecated and no longer used. In it's place the `DependencyContainer` class should be used instead.
+
+The following classes in Aqueduct have been changed to no longer take DependencyContainerRegistry and to use DependencyContainer instead: `BaseContainerRuntimeFactory`, and `ContainerRuntimeFactoryWithDefaultDataStore`
+
+In both cases, the third parameter to the constructor has been changed from `providerEntries: DependencyContainerRegistry = []` to `dependencyContainer?: IFluidDependencySynthesizer`. If you were previously passing an emptry array, `[]` you should now pass `undefined`. If you were passing in something besides an empty array, you will instead create new DependencyContainer and register your types, and then pass that, rather than the type directly:
+
+``` diff
++const dependencyContainer = new DependencyContainer();
++dependencyContainer.register(IFluidUserInformation,async (dc) => userInfoFactory(dc));
+
+ export const fluidExport = new ContainerRuntimeFactoryWithDefaultDataStore(
+     Pond.getFactory(),
+     new Map([
+         Pond.getFactory().registryEntry,
+     ]),
+-    [
+-        {
+-            type: IFluidUserInformation,
+-            provider: async (dc) => userInfoFactory(dc),
+-        },
+-    ]);
++    dependencyContainer);
+```
+### `IContainer` interface updated to complete 0.53 changes
+The breaking changes introduced in [`IContainer` interface updated to expose actively used `Container` public APIs](#IContainer-interface-updated-to-expose-actively-used-Container-public-APIs) have now been completed in 0.54. The following additions to the `IContainer` interface are no longer optional but rather mandatory:
+- `connectionState`
+- `connected`
+- `audience`
+- `readOnlyInfo`
+
+The following "alpha" APIs are still optional:
+- `setAutoReconnect()` (**alpha**)
+- `resume()` (**alpha**)
+- `clientId` (**alpha**)
+- `forceReadonly()` (**alpha**)
+
+The deprecated `codeDetails` API, which was marked as optional on the last release, has now been removed.
+
+## 0.53 Breaking changes
+- [`IContainer` interface updated to expose actively used `Container` public APIs](#IContainer-interface-updated-to-expose-actively-used-Container-public-APIs)
+- [Remove `getLegacyInterval()` and `delete()` from sequence dds](#Remove-getLegacyInterval-and-delete-from-sequence-dds)
+- [readOnly and readOnlyPermissions removed from Container](#readOnly-and-readOnlyPermissions-removed-from-container)
+- [Generic Argument Changes to DataObjects and Factories](#Generic-Argument-Changes-to-DataObjects-and-Factories)
+- [Remove `loader` property from `MockFluidDataStoreContext` class](#Remove-loader-property-from-MockFluidDataStoreContext-class)
+- [maxMessageSize removed from IConnectionDetails and IDocumentDeltaConnection](#maxMessageSize-removed-from-IConnectionDetails-and-IDocumentDeltaConnection)
+- [Remove `IntervalCollection.getView()` from sequence dds](#Remove-IntervalCollectiongetView-from-sequence-dds)
+- [Moved `ICodeDetailsLoader` and `IFluidModuleWithDetails` interface to `@fluidframework/container-definitions`](#Moved-ICodeDetailsLoader-and-IFluidModuleWithDetails-interface-to-fluidframeworkcontainer-definitions)
+- [Removed `errorMessage` property from `ISummaryNack` interface](#Removed-errorMessage-property-from-ISummaryNack-interface)
+- [ISequencedDocumentMessage arg removed from SharedMap and SharedDirectory events](#ISequencedDocumentMessage-arg-removed-from-SharedMap-and-SharedDirectory-events)
+- [Moved `@fluidframework/core-interface#fluidPackage.ts` to `@fluidframework/container-definition#fluidPackage.ts`](#Moved-fluidframeworkcore-interfacefluidPackagets-to-fluidframeworkcontainer-definitionfluidPackagets)
+- [Deprecated `IFluidSerializer` in `IFluidDataStoreRuntime`](#Deprecated-IFluidSerializer-in-IFluidDataStoreRuntime)
+- [Errors thrown to DDS event handlers](#Errors-thrown-to-DDS-event-handlers)
+
+### `IContainer` interface updated to expose actively used `Container` public APIs
+In order to have the `IContainer` interface be the active developer surface that is used when interacting with a `Container` instance, it has been updated to expose the APIs that are necessary for currently used behavior. The motivation here is to move away from using the `Container` class when only its type is required, and to use the `IContainer` interface instead.
+
+The following values have been added (NOTE: some of these are marked with an @alpha tag and may be replaced in the future with a breaking change as the `IContainer` interface is finalized):
+- `connectionState`
+- `connected`
+- `setAutoReconnect()` (**alpha**)
+- `resume()` (**alpha**)
+- `audience`
+- `clientId` (**alpha**)
+- `readOnlyInfo`
+- `forceReadonly()` (**alpha**)
+
+Additionally, `codeDetails` which was already deprecated before is now marked as optional and ready for removal after the next release.
+
+### Remove `getLegacyInterval()` and `delete()` from sequence dds
+`getLegacyInterval()` was only being used by the deprecated `IntervalCollection.delete()`. The alternative to `IntervalCollection.delete()` is `IntervalCollection.removeIntervalById()`.
+
+### `readOnly` and `readOnlyPermissions` removed from `Container`
+The `readOnly` and `readOnlyPermissions` properties from `Container` in `container-loader` was deprecated in 0.35, and has now been removed. To replace its functionality, use `readOnlyInfo` by accessing `readOnlyInfo.readonly` and `readOnlyInfo.permissions` respectively.
+
+### Generic Argument Changes to DataObjects and Factories
+
+DataObject and PureDataObject used to take 3 generic type parameters. This has been collasped to a single generic argument. This new format takes the same types, but allows for easier exclusion or inclusion of specific types, while also being more readable.
+
+In general the existing data object generic parameters map to the new generic parameter as follow:
+`DataObject<O,S,E>` maps to `DataObject<{OptionalProviders: O, InitialState: S, Events: E}>`
+
+We would frequently see default values for generic paramaters, in order to set a following parameter. This is no longer necessary. If you see a generic parameter with a type of `{}`, `undefined`, `object`, `unknown`, `any`, `IEvent`, or `IFluidObject` is not needed, and can now be excluded.
+
+Here are some examples:
+ - `DataObject<{}, any, IEvent>` becomes `DataObject`
+ - `DataObject<IFluidUserInformation>` becomes `DataObject<{OptionalProviders: IFluidUserInformation}>`
+ - `DataObject<{}, RootDataObjectProps>` becomes `DataObject<{InitialState: RootDataObjectProps}>`
+ - `DataObject<object, undefined, IClickerEvents>` becomes `DataObject<{Events: IClickerEvents}>`
+
+Very similar changes have been made to DataObjectFactory and PureDataObjectFactory. Rather than 4 generic arguments it is reduced to 2. The first is still the same, and is the DataObject, the second is the same type the DataObject itself takes. However, this detail should not be important, as will this change has come improved type inference, so it should no longer be necessary to set any generic arguments on the factory.
+
+here are some examples:
+ - `new DataObjectFactory<SpacesStorage, undefined, undefined, IEvent>` becomes `new DataObjectFactory`
+ - `DataObjectFactory<MockComponentFooProvider, object, undefined>` becomes `DataObjectFactory<MockComponentFooProvider>`
+
+Above I've used DataObject, and DataObjectFactory however the same changes apply to PureDataObject and PureDataObjectFactory.
+
+To ease transition we've also added LegacyDataObject, LegacyPureDataObject, LegacyDataObjectFactory, and LegacyPureDataObjectFactory. These types have the same generic parameters as the types before this change, and can be used as a drop in replacement, but please move away from these types asap, as they will be removed in a following release.
+
+### Remove `loader` property from `MockFluidDataStoreContext` class
+The `loader` property from `MockFluidDataStoreContext` class was deprecated in release 0.37 and is now removed. Refer the following deprecation warning: [Loader in data stores deprecated](#Loader-in-data-stores-deprecated)
+
+### `maxMessageSize` removed from `IConnectionDetails` and `IDocumentDeltaConnection`
+The `maxMessageSize` property from `IConnectionDetails` and `IDocumentDeltaConnection` was deprecated in 0.51, and has now been removed from the `container-definitions` and `driver-definitions` packages respectively. To replace its functionality, use `serviceConfiguration.maxMessageSize`.
+
+### Remove `IntervalCollection.getView()` from sequence dds
+The `IntervalCollection.getView()` was removed.  If you were calling this API, you should instead refer to the `IntervalCollection` itself directly in places where you were using the view.
+
+### Moved `ICodeDetailsLoader` and `IFluidModuleWithDetails` interface to `@fluidframework/container-definitions`
+The `ICodeDetailsLoader` and `IFluidModuleWithDetails` interface are deprecated in `@fluidframework/container-loader` and moved to `@fluidframework/container-definitions`. The `ICodeDetailsLoader` interface should be imported from `@fluidframework/container-definition` package. The `ICodeDetailsLoader` and `IFluidModuleWithDetails` from `@fluidframework/container-loader` will be removed from `@fluidframework/container-loader` in further releases.
+
+### Removed `errorMessage` property from `ISummaryNack` interface
+The `errorMessage` property from the `ISummaryNack` interface was deprecated in 0.43, and has now been removed from the `protocol-definitions` package. To replace its functionality, use the `message` property.
+
+### `ISequencedDocumentMessage` arg removed from `SharedMap` and `SharedDirectory` events
+The `ISequencedDocumentMessage` argument in events emitted from `SharedMap` and `SharedDirectory` (the `"valueChanged"` and `"clear"` events) has been removed.  It is not recommended to access the protocol layer directly.  Note that if you were leveraging the `this` argument of these events, you will need to update your event listeners due to the arity change.
+
+### Moved `@fluidframework/core-interface#fluidPackage.ts` to `@fluidframework/container-definition#fluidPackage.ts`
+Moved the following interfaces and const from `@fluidframework/core-interface` to `@fluidframework/container-definitions`:
+- `IFluidPackageEnvironment`
+- `IFluidPackage`
+- `isFluidPackage`
+- `IFluidCodeDetailsConfig`
+- `IFluidCodeDetailsConfig`
+- `IFluidCodeDetails`
+- `IFluidCodeDetailsComparer`
+- `IProvideFluidCodeDetailsComparer`
+- `IFluidCodeDetailsComparer`
+
+They are deprecated from `@fluidframework/core-interface` and would be removed in future release. Please import them from `@fluidframework/container-definitions`.
+
+### Deprecated `IFluidSerializer` in `IFluidDataStoreRuntime`
+`IFluidSerializer` should only be used by DDSs to serialize data and they should use the one created by `SharedObject`.
+
+### Errors thrown to DDS event handlers
+Before this release, exceptions thrown from DDS event handlers resulted in Fluid Framework reporting non-error telemetry event and moving forward as if nothing happened. Starting with this release, such exceptions will result in critical error, i.e. container will be closed with such error and hosting app will be notified via Container's "closed" event. This will either happen immediately (if exception was thrown while processing remote op), or on later usage (if exception was thrown on local change). DDS will go into "broken" state and will keep throwing error on amy attempt to make local changes.
+This process is supposed to be a catch-call case for cases where listeners did not do due diligence or have no better way to handle their errors.
+If possible, it's recommended for DDS event listeners to not throw exceptions, but rather handle them appropriately without involving DDS itself.
+The purpose of this change to ensure that data model stays always synchronized with data projection that event listeners are building. If event listener is not able to fully / correctly process change event, that likely means data synchronization is broken and it's not safe to continue (and potentially, corrupt document).
+
+## 0.52 Breaking changes
+- [chaincodePackage removed from Container](#chaincodePackage-removed-from-Container)
+- [`OdspDocumentInfo` type replaced with `OdspFluidDataStoreLocator` interface](#OdspDocumentInfo-type-replaced-with-OdspFluidDataStoreLocator-interface)
+- [close() removed from IDocumentDeltaConnection](#close-removed-from-IDocumentDeltaConnection)
+- [Replace `createCreateNewRequest` function with `createOdspCreateContainerRequest` function](#Replace-createCreateNewRequest-function-with-createOdspCreateContainerRequest-function)
+- [Deprecate IFluidObject and introduce FluidObject](#Deprecate-IFluidObject-and-introduce-FluidObject)
+
+### `chaincodePackage` removed from `Container`
+The `chaincodePackage` property on `Container` was deprecated in 0.28, and has now been removed.  Two new APIs have been added to replace its functionality, `getSpecifiedCodeDetails()` and `getLoadedCodeDetails()`.  Use `getSpecifiedCodeDetails()` to get the code details currently specified for the `Container`, or `getLoadedCodeDetails()` to get the code details that were used to load the `Container`.
+
+### `OdspDocumentInfo` type replaced with `OdspFluidDataStoreLocator` interface
+The `OdspDocumentInfo` type is removed from `odsp-driver` package. It is removed from `packages\drivers\odsp-driver\src\contractsPublic.ts` and replaced with `OdspFluidDataStoreLocator` interface as parameter in `OdspDriverUrlResolverForShareLink.createDocumentUrl()`. If there are any instances of `OdspDocumentInfo` type used, it can be simply replaced with `OdspFluidDataStoreLocator` interface.
+
+### Replace `createCreateNewRequest` function with `createOdspCreateContainerRequest` function
+The `createCreateNewRequest()` is removed and replaced with `createOdspCreateContainerRequest()` in the `odsp-driver` package. If any instances of `createCreateNewRequest()` are used, replace them with `createOdspCreateContainerRequest()` by importing it from `@fluidframework/odsp-driver` package.
+
+### Deprecate IFluidObject and introduce FluidObject
+This release deprecates the interface `IFluidObject` and introduces the utility type [`FluidObject`](https://github.com/microsoft/FluidFramework/blob/main/common/lib/core-interfaces/src/provider.ts). The primary reason for this change is that the module augmentation used by `IFluidObject` creates excessive type coupling where a small breaking change in any type exposed off `IFluidObject` can lead to type error in all usages of `IFluidObject`.
+On investigation we also found that the uber type `IFluidObject` wasn't genenerally necessary, as consumers generally only used a small number of specific types that they knew in advance.
+
+Given these points, we've introduced [`FluidObject`](https://github.com/microsoft/FluidFramework/blob/main/common/lib/core-interfaces/src/provider.ts). `FluidObject` is a utility type that is used in both its generic and non-generic forms.
+
+The non-generic `FluidObject` is returned or taken in cases where the specific functionally isn't known, or is different based on scenario. You'll see this usage for things like `scope` and the request pattern.
+
+The non-generic `FluidObject` is a hint that the generic form of `FluidObject` should be used to inspect it. For example
+``` typescript
+    const provider: FluidObject<IFluidHTMLView> = requestFluidObject(container, "/");
+    if(provider.IFluidHTMLView !== undefined){
+        provider.IFluidHTMLView.render(div)
+    }
+```
+
+If you want to inspect for multiple interfaces via `FluidObject`, you can use an intersection:
+``` typescript
+    const provider: FluidObject<IFluidHTMLView & IFluidMountableView> = requestFluidObject(container, "/");
+```
+
+Please begin reducing the usage of `IFluidObject` and moving to `FluidObject`.  If you find any cases that `FluidObject` doesn't support please file an issue.
+
+## 0.51 Breaking changes
+- [`maxMessageSize` property has been deprecated from IConnectionDetails and IDocumentDeltaConnection](#maxmessagesize-property-has-been-deprecated-from-iconnectiondetails-and-idocumentdeltaconnection)
+- [_createDataStoreWithProps and IFluidDataStoreChannel](#createdatastorewithprops-and-ifluiddatastorechannel)
+- [Deprecated `Loader._create` is removed](#deprecated-loadercreate-is-removed)
+- [Stop exporting internal class `CollabWindowTracker` ](#stop-exporting-internal-class-collabwindowtracker)
+- [base-host package removed](#base-host-package-removed)
+- [Registers removed from sequence and merge-tree](#Registers-removed-from-sequence-and-merge-tree)
+- [Token fetch errors have proper errorType](#token-fetch-errors-have-proper-errorType)
+
+### `maxMessageSize` property has been deprecated from IConnectionDetails and IDocumentDeltaConnection
+`maxMessageSize` is redundant and will be removed soon. Please use the `serviceConfiguration.maxMessageSize` property instead.
+
+### _createDataStoreWithProps and IFluidDataStoreChannel
+ContainerRuntime._createDataStoreWithProps() is made consistent with the rest of API (same API on IContainerRuntimeBase interface, all other create methods to create data store) and returns now only IFluidRouter. IFluidDataStoreChannel is internal communication mechanism between ContainerRuntime and data stores and should be used only for this purpose, by data store authors. It is not a public interface that should be exposed by data stores.
+While casting IFluidRouter objects returned by various data store creation APIs to IFluidDataStoreChannel would continue to work in this release, this is not supported and will be taken away in next releases due to upcoming work in GC & named component creation space.
+
+### Deprecated `Loader._create` is removed
+Removing API `Loader._create` from `@fluidframework/container-loader`, which was an interim replacement of the Loader constructor API change in version 0.28.
+Use the Loader constructor with the `ILoaderProps` instead.
+
+### Stop exporting internal class `CollabWindowTracker`
+`CollabWindowTracker` is an internal implementation for `@fluidframework/container-loader` and should never been exported.
+
+### base-host package removed
+The `@fluidframework/base-host` package has been removed.  See the [quick-start guide](https://fluidframework.com/docs/start/quick-start/) for recommended hosting practices.
+
+If you were using the `UpgradeManager` utility from this package, external access to Quorum proposals is planned to be deprecated and so this is no longer recommended.  To upgrade code, instead use the `Container` API `proposeCodeDetails`.
+
+### Registers removed from sequence and merge-tree
+The `@fluidframework/sequence` and `@fluidframework/merge-tree` packages provided cut/copy/paste functionalities that built on a register concept.  These functionalities were never fully implemented and have been removed.
+
+### Token fetch errors have proper errorType
+If the tokenFetcher provided by the host thrown an error, this error will be propagated through the code with errorType "fetchTokenError".
+Previously, the errorType was either empty, or recently and incorrectly, "dataProcessingError".
+
 ## 0.50 Breaking changes
-- [OpProcessingController removed](#OpProcessingController-removed)
+- [OpProcessingController removed](#opprocessingcontroller-removed)
+- [Expose isDirty flag in the FluidContainer](#expose-isdirty-flag-in-the-fluidcontainer)
+- [get-container API changed](#get-container-api-changed)
+- [SharedCell serialization](#sharedcell-serialization)
+- [Expose saved and dirty events in FluidContainer](#expose-saved-and-dirty-events-in-fluidcontainer)
+- [Deprecated bindToContext in IFluidDataStoreChannel](#Deprecated-bindToContext-in-IFluidDataStoreChannel)
 
 ### OpProcessingController removed
 OpProcessingController has been deprecated for very long time. It's being removed in this release.
 Please use LoaderContainerTracker instead (see https://github.com/microsoft/FluidFramework/pull/7784 as an example of changes required)
 If you can't make this transition, you can always copy implementation of LoaderContainerTracker to your repo and maintain it. That said, it has bugs and tests using it are easily broken but subtle changes in reconnection logic, as evident from PRs #7753, #7393)
+
+### Expose isDirty flag in the FluidContainer
+The `isDirty` flag is exposed onto the FluidContainer. The property is already exposed on the Container and it is just piped up to the FluidContainer.
+
+### get-container API changed
+The signature of methods `getTinyliciousContainer` and `getFRSContainer` exported from the `get-container` package has been changed to accomodate the new container create flow. Both methods now return a tuple of the container instance and container ID associated with it. The `documentId` parameter is ignored when a new container is requested. Client applications need to use the ID returned by the API.
+The `get-container` API is widely used in multiple sample applications across the repository. All samples were refactored to reflect the change in the API. External samples consuming these methods should be updated accordingly.
+
+### SharedCell serialization
+`SharedCell` serialization format has changed. Values stored from previous versions will be broken.
+
+### Expose saved and dirty events in FluidContainer
+The `saved` and `dirty` container events are exposed onto the FluidContainer. The events are emitted on the Container already.
+
+### Deprecated bindToContext in IFluidDataStoreChannel
+bindToContext in IFluidDataStoreChannel has been deprecated. This should not be used to explicitly bind data stores. Root data stores will automatically be bound to container. Non-root data stores will be bound when their handles are stored in an already bound DDS.
 
 ## 0.49 Breaking changes
 - [Deprecated dirty document events and property removed from ContainerRuntime](#deprecated-dirty-document-events-and-property-removed-from-containerruntime)

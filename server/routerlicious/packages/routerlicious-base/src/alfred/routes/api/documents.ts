@@ -3,7 +3,14 @@
  * Licensed under the MIT License.
  */
 
-import { IDocumentStorage, IThrottler, ITenantManager, ICache } from "@fluidframework/server-services-core";
+import * as crypto from "crypto";
+import {
+    IDocumentStorage,
+    IThrottler,
+    ITenantManager,
+    ICache,
+    MongoManager,
+} from "@fluidframework/server-services-core";
 import {
     verifyStorageToken,
     throttle,
@@ -23,7 +30,8 @@ export function create(
     throttler: IThrottler,
     singleUseTokenCache: ICache,
     config: Provider,
-    tenantManager: ITenantManager): Router {
+    tenantManager: ITenantManager,
+    globalDbMongoManager?: MongoManager): Router {
     const router: Router = Router();
 
     // Whether to enforce server-generated document ids in create doc flow
@@ -86,6 +94,7 @@ export function create(
                 summary,
                 sequenceNumber,
                 1,
+                crypto.randomBytes(4).toString("hex"),
                 values);
 
             handleResponse(createP.then(() => id), response, undefined, 201);

@@ -48,7 +48,7 @@ function serialize(directory1: SharedDirectory): string {
     assert.strictEqual(summaryObjectKeys[0], "header", "summary should have a header blob");
     assert.strictEqual(summaryTree.tree.header.type, SummaryType.Blob, "header is not of SummaryType.Blob");
 
-    const content = (summaryTree.tree.header as ISummaryBlob).content as string;
+    const content = summaryTree.tree.header.content as string;
     return JSON.stringify((JSON.parse(content) as IDirectoryNewStorageFormat).content);
 }
 
@@ -88,7 +88,7 @@ describe("Directory", () => {
                 directory.on("op", (arg1, arg2, arg3) => {
                     assert.fail("shouldn't receive an op event");
                 });
-                directory.on("valueChanged", (changed, local, op, target) => {
+                directory.on("valueChanged", (changed, local, target) => {
                     assert.equal(valueChangedExpected, true, "valueChange event not expected");
                     valueChangedExpected = false;
 
@@ -97,7 +97,6 @@ describe("Directory", () => {
                     assert.equal(changed.path, directory.absolutePath);
 
                     assert.equal(local, true, "local should be true for local action for valueChanged event");
-                    assert.equal(op, null, "op should be null for local actions for valueChanged event");
                     assert.equal(target, directory, "target should be the directory for valueChanged event");
                 });
                 directory.on("containedValueChanged", (changed, local, target) => {
@@ -111,12 +110,11 @@ describe("Directory", () => {
                     assert.equal(local, true, "local should be true for local action for containedValueChanged event");
                     assert.equal(target, directory, "target should be the directory for containedValueChanged event");
                 });
-                directory.on("clear", (local, op, target) => {
+                directory.on("clear", (local, target) => {
                     assert.equal(clearExpected, true, "clear event not expected");
                     clearExpected = false;
 
                     assert.equal(local, true, "local should be true for local action for clear event");
-                    assert.equal(op, null, "op should be null for local actions for clear event");
                     assert.equal(target, directory, "target should be the directory for clear event");
                 });
                 directory.on("error", (error) => {

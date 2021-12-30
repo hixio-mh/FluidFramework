@@ -200,6 +200,12 @@ export class InsecureUrlResolver implements IUrlResolver {
     resolve(request: IRequest): Promise<IResolvedUrl | undefined>;
     }
 
+// @public
+export interface IProgress {
+    cancel?: AbortSignal;
+    retry?(delayInMs: number, error: any): void;
+}
+
 // @public (undocumented)
 export const isFluidResolvedUrl: (resolved: IResolvedUrl | undefined) => resolved is IFluidResolvedUrl;
 
@@ -320,13 +326,8 @@ export class RateLimiter {
 // @public
 export function readAndParse<T>(storage: Pick<IDocumentStorageService, "readBlob">, id: string): Promise<T>;
 
-// @public @deprecated (undocumented)
-export function readAndParseFromBlobs<T>(blobs: {
-    [index: string]: string;
-}, id: string): T;
-
 // @public (undocumented)
-export function requestOps(get: (from: number, to: number, telemetryProps: ITelemetryProperties) => Promise<IDeltasFetchResult>, concurrency: number, fromTotal: number, toTotal: number | undefined, payloadSize: number, logger: ITelemetryLogger, signal?: AbortSignal): IStream<ISequencedDocumentMessage[]>;
+export function requestOps(get: (from: number, to: number, telemetryProps: ITelemetryProperties) => Promise<IDeltasFetchResult>, concurrency: number, fromTotal: number, toTotal: number | undefined, payloadSize: number, logger: ITelemetryLogger, signal?: AbortSignal, fetchReason?: string): IStream<ISequencedDocumentMessage[]>;
 
 // @public (undocumented)
 export class RetryableError<T extends string> extends NetworkErrorBasic<T> {
@@ -336,7 +337,7 @@ export class RetryableError<T extends string> extends NetworkErrorBasic<T> {
 }
 
 // @public (undocumented)
-export function runWithRetry<T>(api: () => Promise<T>, fetchCallName: string, refreshDelayInfo: (id: string) => void, emitDelayInfo: (id: string, retryInMs: number, err: any) => void, logger: ITelemetryLogger, checkRetry?: () => void): Promise<T>;
+export function runWithRetry<T>(api: (cancel?: AbortSignal) => Promise<T>, fetchCallName: string, logger: ITelemetryLogger, progress: IProgress): Promise<T>;
 
 // @public (undocumented)
 export abstract class SnapshotExtractor {

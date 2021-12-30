@@ -3,7 +3,7 @@
  * Licensed under the MIT License.
  */
 
- import { assert } from "@fluidframework/common-utils";
+import { assert } from "@fluidframework/common-utils";
 import { Property } from "./base";
 import { RedBlackTree } from "./collections";
 import { UnassignedSequenceNumber } from "./constants";
@@ -236,7 +236,7 @@ export class PartialSequenceLengths {
                         PartialSequenceLengths.insertSegment(combinedPartialLengths, segment);
                     }
                 }
-                const removalInfo = mergeTree.getRemovalInfo(segment);
+                const removalInfo: IRemovalInfo = segment;
                 // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
                 if (seqLTE(removalInfo.removedSeq!, collabWindow.minSeq)) {
                     combinedPartialLengths.minLength -= segment.cachedLength;
@@ -425,7 +425,7 @@ export class PartialSequenceLengths {
                 segCount += branchPartialLengths.segmentCount;
             } else {
                 const segment = child;
-                const removalInfo = mergeTree.getRemovalInfo(segment);
+                const removalInfo: IRemovalInfo = segment;
 
                 if (segment.seq === seq) {
                     if (removalInfo.removedSeq !== seq) {

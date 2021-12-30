@@ -3,11 +3,11 @@
  * Licensed under the MIT License.
  */
 
-import { IEvent, ITelemetryLogger } from "@fluidframework/common-definitions";
+import { ITelemetryLogger } from "@fluidframework/common-definitions";
 import { IConnectionDetails } from "@fluidframework/container-definitions";
 import { ProtocolOpHandler } from "@fluidframework/protocol-base";
 import { ConnectionMode, ISequencedClient } from "@fluidframework/protocol-definitions";
-import { EventEmitterWithErrorHandling, PerformanceEvent } from "@fluidframework/telemetry-utils";
+import { PerformanceEvent } from "@fluidframework/telemetry-utils";
 import { assert, Timer } from "@fluidframework/common-utils";
 import { ConnectionState } from "./container";
 
@@ -18,22 +18,16 @@ export interface IConnectionStateHandler {
     shouldClientJoinWrite: () => boolean,
     maxClientLeaveWaitTime: number | undefined,
     logConnectionIssue: (eventName: string) => void,
+    connectionStateChanged: () => void,
 }
 
 export interface ILocalSequencedClient extends ISequencedClient {
     shouldHaveLeft?: boolean;
 }
 
-/**
- * Events emitted by the ConnectionStateHandler.
- */
-export interface IConnectionStateHandlerEvents extends IEvent {
-    (event: "connectionStateChanged", listener: () => void);
-}
-
 const JoinOpTimer = 45000;
 
-export class ConnectionStateHandler extends EventEmitterWithErrorHandling<IConnectionStateHandlerEvents> {
+export class ConnectionStateHandler {
     private _connectionState = ConnectionState.Disconnected;
     private _pendingClientId: string | undefined;
     private _clientId: string | undefined;
@@ -62,11 +56,12 @@ export class ConnectionStateHandler extends EventEmitterWithErrorHandling<IConne
         private readonly handler: IConnectionStateHandler,
         private readonly logger: ITelemetryLogger,
     ) {
-        super();
         this.prevClientLeftTimer = new Timer(
             // Default is 90 sec for which we are going to wait for its own "leave" message.
             this.handler.maxClientLeaveWaitTime ?? 90000,
             () => {
+                assert(!this.connected,
+                    0x2ac /* "Connected when timeout waiting for leave from previous session fired!" */);
                 this.applyForConnectedState("timeout");
             },
         );
@@ -94,6 +89,11 @@ export class ConnectionStateHandler extends EventEmitterWithErrorHandling<IConne
     private stopJoinOpTimer() {
         assert(this.joinOpTimer.hasTimer, 0x235 /* "no joinOpTimer" */);
         this.joinOpTimer.clear();
+    }
+
+    public dispose() {
+        assert(!this.joinOpTimer.hasTimer, 0x2a5 /* "join timer" */);
+        this.prevClientLeftTimer.clear();
     }
 
     public receivedAddMemberEvent(clientId: string) {
@@ -135,6 +135,7 @@ export class ConnectionStateHandler extends EventEmitterWithErrorHandling<IConne
             // Adding this event temporarily so that we can get help debugging if something goes wrong.
             this.logger.sendTelemetryEvent({
                 eventName: "connectedStateRejected",
+                category: source === "timeout" ? "error" : "generic",
                 source,
                 pendingClientId: this.pendingClientId,
                 clientId: this.clientId,
@@ -163,7 +164,6 @@ export class ConnectionStateHandler extends EventEmitterWithErrorHandling<IConne
     public receivedConnectEvent(
         connectionMode: ConnectionMode,
         details: IConnectionDetails,
-        opsBehind?: number,
     ) {
         const oldState = this._connectionState;
         this._connectionState = ConnectionState.Connecting;
@@ -176,7 +176,7 @@ export class ConnectionStateHandler extends EventEmitterWithErrorHandling<IConne
         // we know there can no longer be outstanding ops that we sent with the previous client id.
         this._pendingClientId = details.clientId;
 
-        // Report telemetry after we set client id!
+        // Report telemetry after we set client id, but before transitioning to Connected state below!
         this.handler.logConnectionStateChangeTelemetry(ConnectionState.Connecting, oldState);
 
         const protocolHandler = this.handler.protocolHandler();
@@ -188,6 +188,7 @@ export class ConnectionStateHandler extends EventEmitterWithErrorHandling<IConne
         if ((protocolHandler !== undefined && protocolHandler.quorum.getMember(details.clientId) !== undefined)
             || connectionMode === "read"
         ) {
+            assert(!this.prevClientLeftTimer.hasTimer, 0x2a6 /* "there should be no timer for 'read' connections" */);
             this.setConnectionState(ConnectionState.Connected);
         } else if (connectionMode === "write") {
             this.startJoinOpTimer();
@@ -243,9 +244,10 @@ export class ConnectionStateHandler extends EventEmitterWithErrorHandling<IConne
             }
         }
 
-        this.emit("connectionStateChanged");
-
-        // Report telemetry after we set client id!
+        // Report transition before we propagate event across layers
         this.handler.logConnectionStateChangeTelemetry(this._connectionState, oldState, reason);
+
+        // Propagate event across layers
+        this.handler.connectionStateChanged();
     }
 }

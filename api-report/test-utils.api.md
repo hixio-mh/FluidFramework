@@ -4,7 +4,6 @@
 
 ```ts
 
-import { Container } from '@fluidframework/container-loader';
 import { ContainerRuntime } from '@fluidframework/container-runtime';
 import { FluidDataStoreRuntime } from '@fluidframework/datastore';
 import { IChannelFactory } from '@fluidframework/datastore-definitions';
@@ -101,11 +100,9 @@ export interface IProvideTestFluidObject {
 
 // @public (undocumented)
 export interface ITestContainerConfig {
-    // (undocumented)
     fluidDataObjectType?: DataObjectFactoryType;
-    // (undocumented)
+    loaderOptions?: ITestLoaderOptions;
     registry?: ChannelFactoryRegistry;
-    // (undocumented)
     runtimeOptions?: IContainerRuntimeOptions;
 }
 
@@ -134,6 +131,8 @@ export interface ITestObjectProvider {
     // (undocumented)
     createContainer(entryPoint: fluidEntryPoint, options?: ITestLoaderOptions): Promise<IContainer>;
     // (undocumented)
+    createFluidEntryPoint: (testContainerConfig?: ITestContainerConfig) => fluidEntryPoint;
+    // (undocumented)
     createLoader(packageEntries: Iterable<[IFluidCodeDetails, fluidEntryPoint]>, options?: ITestLoaderOptions, detachedBlobStorage?: IDetachedBlobStorage): IHostLoader;
     // (undocumented)
     defaultCodeDetails: IFluidCodeDetails;
@@ -148,7 +147,7 @@ export interface ITestObjectProvider {
     // (undocumented)
     loadContainer(entryPoint: fluidEntryPoint, options?: ITestLoaderOptions, requestHeader?: IRequestHeader): Promise<IContainer>;
     // (undocumented)
-    loadTestContainer(testContainerConfig?: ITestContainerConfig): Promise<IContainer>;
+    loadTestContainer(testContainerConfig?: ITestContainerConfig, requestHeader?: IRequestHeader): Promise<IContainer>;
     // (undocumented)
     logger: ITelemetryBaseLogger;
     // (undocumented)
@@ -238,6 +237,8 @@ export class TestFluidObjectFactory implements IFluidDataStoreFactory {
 export class TestObjectProvider {
     constructor(LoaderConstructor: typeof Loader, driver: ITestDriver, createFluidEntryPoint: (testContainerConfig?: ITestContainerConfig) => fluidEntryPoint);
     createContainer(entryPoint: fluidEntryPoint, options?: ITestLoaderOptions): Promise<IContainer>;
+    // (undocumented)
+    readonly createFluidEntryPoint: (testContainerConfig?: ITestContainerConfig) => fluidEntryPoint;
     createLoader(packageEntries: Iterable<[IFluidCodeDetails, fluidEntryPoint]>, options?: ITestLoaderOptions, detachedBlobStorage?: IDetachedBlobStorage): Loader;
     // (undocumented)
     get defaultCodeDetails(): IFluidCodeDetails;
@@ -250,10 +251,10 @@ export class TestObjectProvider {
     // (undocumented)
     ensureSynchronized(): Promise<void>;
     // (undocumented)
-    loadContainer(entryPoint: fluidEntryPoint, options?: ITestLoaderOptions, requestHeader?: IRequestHeader): Promise<Container>;
+    loadContainer(entryPoint: fluidEntryPoint, options?: ITestLoaderOptions, requestHeader?: IRequestHeader): Promise<IContainer>;
     // (undocumented)
     readonly LoaderConstructor: typeof Loader;
-    loadTestContainer(testContainerConfig?: ITestContainerConfig): Promise<Container>;
+    loadTestContainer(testContainerConfig?: ITestContainerConfig, requestHeader?: IRequestHeader): Promise<IContainer>;
     // (undocumented)
     get logger(): ITelemetryBaseLogger;
     makeTestContainer(testContainerConfig?: ITestContainerConfig): Promise<IContainer>;
@@ -269,7 +270,10 @@ export class TestObjectProvider {
     }
 
 // @public (undocumented)
-export function timeoutPromise<T = void>(executor: (resolve: (value: T | PromiseLike<T>) => void, reject: (reason?: any) => void) => void, timeoutOptions?: TimeoutWithError | TimeoutWithValue<T>): Promise<T | void>;
+export function timeoutAwait<T = void>(promise: PromiseLike<T>, timeoutOptions?: TimeoutWithError | TimeoutWithValue<T>): Promise<T>;
+
+// @public (undocumented)
+export function timeoutPromise<T = void>(executor: (resolve: (value: T | PromiseLike<T>) => void, reject: (reason?: any) => void) => void, timeoutOptions?: TimeoutWithError | TimeoutWithValue<T>): Promise<T>;
 
 // @public (undocumented)
 export interface TimeoutWithError {
@@ -288,7 +292,7 @@ export interface TimeoutWithValue<T = void> {
     // (undocumented)
     reject: false;
     // (undocumented)
-    value?: T;
+    value: T;
 }
 
 

@@ -11,9 +11,10 @@ import {
     IRuntime,
     IProxyLoaderFactory,
     ILoaderOptions,
+    IContainer,
 } from "@fluidframework/container-definitions";
-import { Loader, Container } from "@fluidframework/container-loader";
-import { IRequest, IResponse, IFluidObject } from "@fluidframework/core-interfaces";
+import { Loader } from "@fluidframework/container-loader";
+import { IRequest, IResponse, FluidObject } from "@fluidframework/core-interfaces";
 import { IDocumentServiceFactory, IUrlResolver } from "@fluidframework/driver-definitions";
 import {
     MultiDocumentServiceFactory,
@@ -60,7 +61,7 @@ export interface IFrameOuterHostConfig {
 
     // A Fluid object that gives host provided capabilities/configurations
     // to the Fluid object in the container(such as auth).
-    scope?: IFluidObject;
+    scope?: FluidObject;
 
     proxyLoaderFactories?: Map<string, IProxyLoaderFactory>;
 }
@@ -80,13 +81,6 @@ class ProxyRuntime implements IRuntime {
         throw new Error("Method not implemented.");
     }
     async setConnectionState(connected: boolean, clientId?: string) {
-    }
-    /**
-     * @deprecated in 0.14, use dispose() to stop the runtime.
-     * Remove after IRuntime definition no longer includes it.
-     */
-    async stop(): Promise<{snapshot?: never, state?: never}> {
-        throw new Error("Method not implemented.");
     }
     async process(message: ISequencedDocumentMessage, local: boolean, context: any) {
     }
@@ -166,7 +160,7 @@ export class IFrameOuterHost {
      * provides only limited functionality.
      * @param request - The request to resolve on the internal loader
      */
-    public async loadContainer(request: IRequest): Promise<Container> {
+    public async loadContainer(request: IRequest): Promise<IContainer> {
         return this.loader.resolve(request);
     }
 }

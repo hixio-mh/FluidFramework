@@ -13,7 +13,7 @@ import { IAgentScheduler } from "@fluidframework/agent-scheduler";
 import { SharedCell } from "@fluidframework/cell";
 import { performance } from "@fluidframework/common-utils";
 import {
-    IFluidObject,
+    FluidObject,
     IFluidHandle,
     IFluidLoadable,
     IRequest,
@@ -29,8 +29,6 @@ import {
     IFluidDataStoreContext,
 } from "@fluidframework/runtime-definitions";
 import {
-    SharedNumberSequence,
-    SharedObjectSequence,
     SharedString,
 } from "@fluidframework/sequence";
 import {
@@ -38,6 +36,7 @@ import {
     create404Response,
 } from "@fluidframework/runtime-utils";
 import { IFluidHTMLView } from "@fluidframework/view-interfaces";
+import { IFluidTokenProvider } from "@fluidframework/container-definitions";
 import { SharedTextDocument } from "./document";
 import { downloadRawText, getInsights, setTranslation } from "./utils";
 
@@ -117,8 +116,6 @@ export class SharedTextRunner
 
             debug(`Not existing ${this.runtime.id} - ${performance.now()}`);
             this.rootView.set("users", this.sharedTextDocument.createMap().handle);
-            const seq = SharedNumberSequence.create(this.sharedTextDocument.runtime);
-            this.rootView.set("sequence-test", seq.handle);
             const newString = this.sharedTextDocument.createString();
 
             const template = parse(window.location.search.substr(1)).template;
@@ -252,7 +249,7 @@ class TaskScheduler {
 
     public start() {
         const hostTokens =
-            (this.componentContext.containerRuntime as IFluidObject).IFluidTokenProvider;
+            (this.componentContext.containerRuntime as FluidObject<IFluidTokenProvider>).IFluidTokenProvider;
         const intelTokens = hostTokens && hostTokens.intelligence
             ? hostTokens.intelligence.textAnalytics
             : undefined;
@@ -283,8 +280,6 @@ export function instantiateDataStore(context: IFluidDataStoreContext, existing: 
             SharedMap.getFactory(),
             SharedString.getFactory(),
             SharedCell.getFactory(),
-            SharedObjectSequence.getFactory(),
-            SharedNumberSequence.getFactory(),
         ].map((factory) => [factory.type, factory])),
         existing,
     );

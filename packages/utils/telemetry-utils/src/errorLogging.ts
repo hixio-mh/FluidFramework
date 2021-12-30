@@ -6,10 +6,12 @@
 import {
     ILoggingError,
     ITaggedTelemetryPropertyType,
+    ITelemetryLogger,
     ITelemetryProperties,
 } from "@fluidframework/common-definitions";
 import { v4 as uuid } from "uuid";
 import {
+    hasErrorInstanceId,
     IFluidErrorBase,
     isFluidError,
     isValidLegacyError,
@@ -74,54 +76,15 @@ function copyProps(target: ITelemetryProperties | LoggingError, source: ITelemet
 export interface IFluidErrorAnnotations {
     /** Telemetry props to log with the error */
     props?: ITelemetryProperties;
-    /** fluidErrorCode to mention if error isn't already an IFluidErrorBase */
-    errorCodeIfNone?: string;
-}
-
-/** Simplest possible implementation of IFluidErrorBase */
-class SimpleFluidError implements IFluidErrorBase {
-    private readonly telemetryProps: ITelemetryProperties = {};
-
-    readonly errorType: string;
-    readonly fluidErrorCode: string;
-    readonly message: string;
-    readonly stack?: string;
-    readonly name?: string;
-    readonly errorInstanceId: string;
-
-    constructor(
-        errorProps: Omit<IFluidErrorBase,
-            "getTelemetryProperties" |
-            "addTelemetryProperties" |
-            "errorInstanceId">,
-    ) {
-        this.errorType = errorProps.errorType;
-        this.fluidErrorCode = errorProps.fluidErrorCode;
-        this.message = errorProps.message;
-        this.stack = errorProps.stack;
-        this.name = errorProps.name;
-        this.errorInstanceId = uuid();
-
-        this.addTelemetryProperties(errorProps);
-    }
-
-    getTelemetryProperties(): ITelemetryProperties {
-        return this.telemetryProps;
-    }
-
-    addTelemetryProperties(props: ITelemetryProperties) {
-        copyProps(this.telemetryProps, props);
-    }
 }
 
 /** For backwards compatibility with pre-fluidErrorCode valid errors */
 function patchWithErrorCode(
     legacyError: Omit<IFluidErrorBase, "fluidErrorCode">,
-    errorCode: string = "<error predates fluidErrorCode>",
 ): asserts legacyError is IFluidErrorBase {
-    const patchMe: { fluidErrorCode?: string } = legacyError as any;
+    const patchMe: { -readonly [P in "fluidErrorCode"]?: IFluidErrorBase[P] } = legacyError as any;
     if (patchMe.fluidErrorCode === undefined) {
-        patchMe.fluidErrorCode = errorCode;
+        patchMe.fluidErrorCode = "<error predates fluidErrorCode>";
     }
 }
 
@@ -137,7 +100,7 @@ export function normalizeError(
 ): IFluidErrorBase {
     // Back-compat, while IFluidErrorBase is rolled out
     if (isValidLegacyError(error)) {
-        patchWithErrorCode(error, annotations.errorCodeIfNone);
+        patchWithErrorCode(error);
     }
 
     if (isFluidError(error)) {
@@ -150,9 +113,9 @@ export function normalizeError(
     const { message, stack } = extractLogSafeErrorProperties(error, false /* sanitizeStack */);
     const fluidError: IFluidErrorBase = new SimpleFluidError({
         errorType: "genericError", // Match Container/Driver generic error type
-        fluidErrorCode: annotations.errorCodeIfNone ?? "none",
+        fluidErrorCode: "",
         message,
-        stack: stack ?? generateStack(),
+        stack,
     });
 
     fluidError.addTelemetryProperties({
@@ -167,17 +130,95 @@ export function normalizeError(
     return fluidError;
 }
 
-export function generateStack(): string | undefined {
-    // Some browsers will populate stack right away, others require throwing Error
-    let stack = new Error("<<generated stack>>").stack;
-    if (!stack) {
-        try {
-            throw new Error("<<generated stack>>");
-        } catch (e) {
-            stack = e.stack;
-        }
+let stackPopulatedOnCreation: boolean | undefined;
+
+/**
+ * The purpose of this function is to provide ability to capture stack context quickly.
+ * Accessing new Error().stack is slow, and the slowest part is accessing stack property itself.
+ * There are scenarios where we generate error with stack, but error is handled in most cases and
+ * stack property is not accessed.
+ * For such cases it's better to not read stack property right away, but rather delay it until / if it's needed
+ * Some browsers will populate stack right away, others require throwing Error, so we do auto-detection on the fly.
+ * @returns Error object that has stack populated.
+ */
+ export function generateErrorWithStack(): Error {
+    const err = new Error("<<generated stack>>");
+
+    if (stackPopulatedOnCreation === undefined) {
+        stackPopulatedOnCreation = (err.stack !== undefined);
     }
-    return stack;
+
+    if (stackPopulatedOnCreation) {
+        return err;
+    }
+
+    try {
+        throw err;
+    } catch (e) {
+        return e as Error;
+    }
+}
+
+export function generateStack(): string | undefined {
+    return generateErrorWithStack().stack;
+}
+
+/**
+ * Create a new error, wrapping and caused by the given unknown error.
+ * Copies the inner error's message and stack over but otherwise uses newErrorFn to define the error.
+ * The inner error's instance id will also be logged for telemetry analysis.
+ * @param innerError - An error from untrusted/unknown origins
+ * @param newErrorFn - callback that will create a new error given the original error's message
+ * @returns A new error object "wrapping" the given error
+ */
+ export function wrapError<T extends IFluidErrorBase>(
+    innerError: unknown,
+    newErrorFn: (message: string) => T,
+): T {
+    const {
+        message,
+        stack,
+    } = extractLogSafeErrorProperties(innerError, false /* sanitizeStack */);
+
+    const newError = newErrorFn(message);
+
+    if (stack !== undefined) {
+        overwriteStack(newError, stack);
+    }
+
+    if (hasErrorInstanceId(innerError)) {
+        newError.addTelemetryProperties({ innerErrorInstanceId: innerError.errorInstanceId });
+    }
+
+    return newError;
+}
+
+/** The same as wrapError, but also logs the innerError, including the wrapping error's instance id */
+export function wrapErrorAndLog<T extends IFluidErrorBase>(
+    innerError: unknown,
+    newErrorFn: (message: string) => T,
+    logger: ITelemetryLogger,
+) {
+    const newError = wrapError(innerError, newErrorFn);
+    const wrappedByErrorInstanceId = hasErrorInstanceId(newError)
+        ? newError.errorInstanceId
+        : undefined;
+
+    logger.sendTelemetryEvent({
+        eventName: "WrapError",
+        wrappedByErrorInstanceId,
+    }, innerError);
+
+    return newError;
+}
+
+function overwriteStack(error: IFluidErrorBase, stack: string) {
+    // supposedly setting stack on an Error can throw.
+    try {
+        Object.assign(error, { stack });
+    } catch (errorSettingStack) {
+        error.addTelemetryProperties({ stack2: stack });
+    }
 }
 
 /**
@@ -267,5 +308,26 @@ export class LoggingError extends Error implements ILoggingError, Pick<IFluidErr
             stack: this.stack,
             message: this.message,
         };
+    }
+}
+
+/** Simple implementation of IFluidErrorBase, extending LoggingError */
+class SimpleFluidError extends LoggingError implements IFluidErrorBase {
+    readonly errorType: string;
+    readonly fluidErrorCode: string;
+
+    constructor(
+        errorProps: Omit<IFluidErrorBase,
+            | "getTelemetryProperties"
+            | "addTelemetryProperties"
+            | "errorInstanceId"
+            | "name">,
+    ) {
+        super(errorProps.message);
+        this.errorType = errorProps.errorType;
+        this.fluidErrorCode = errorProps.fluidErrorCode;
+        if (errorProps.stack !== undefined) {
+            overwriteStack(this, errorProps.stack);
+        }
     }
 }

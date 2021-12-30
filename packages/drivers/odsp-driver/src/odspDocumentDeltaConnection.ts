@@ -20,6 +20,7 @@ import { v4 as uuid } from "uuid";
 import { IOdspSocketError, IGetOpsResponse, IFlushOpsResponse } from "./contracts";
 import { EpochTracker } from "./epochTracker";
 import { errorObjectFromSocketError } from "./odspError";
+import { pkgVersion } from "./packageVersion";
 
 const protocolVersions = ["^0.4.0", "^0.3.0", "^0.2.0", "^0.1.0"];
 const feature_get_ops = "api_get_ops";
@@ -226,6 +227,7 @@ export class OdspDocumentDeltaConnection extends DocumentDeltaConnection {
             versions: protocolVersions,
             nonce: uuid(),
             epoch: epochTracker.fluidEpoch,
+            relayUserAgent: [client.details.environment, ` driverVersion:${pkgVersion}`].join(";"),
         };
 
         // Reference to this client supporting get_ops flow.
@@ -380,6 +382,7 @@ export class OdspDocumentDeltaConnection extends DocumentDeltaConnection {
             const payloadToDelete = this.getOpsMap.get(key!)!;
             this.logger.sendErrorEvent({
                 eventName: "GetOpsTooMany",
+                nonce,
                 from: payloadToDelete.from,
                 to: payloadToDelete.to,
                 length: payloadToDelete.to - payloadToDelete.from,
@@ -457,14 +460,18 @@ export class OdspDocumentDeltaConnection extends DocumentDeltaConnection {
             const data = this.getOpsMap.get(result.nonce);
             // Due to socket multiplexing, this client may not have asked for any data
             // If so, there it most likely does not need these ops (otherwise it already asked for them)
-            if (data !== undefined) {
+            // Also we may have deleted entry in this.getOpsMap due to too many requests and too slow response.
+            // But not processing such result may push us into infinite loop of fast requests and dropping all responses
+            if (data !== undefined || result.nonce.indexOf(this.requestOpsNoncePrefix) === 0) {
                 this.getOpsMap.delete(result.nonce);
                 const common = {
                     eventName: "GetOps",
+                    // We need nonce only to pair with GetOpsTooMany events, i.e. when record was deleted
+                    nonce: data === undefined ? result.nonce : undefined,
                     code: result.code,
-                    from: data.from,
-                    to: data.to,
-                    duration: performance.now() - data.start,
+                    from: data?.from,
+                    to: data?.to,
+                    duration: data === undefined ? undefined : performance.now() - data.start,
                 };
                 if (messages !== undefined && messages.length > 0) {
                     this.logger.sendPerformanceEvent({

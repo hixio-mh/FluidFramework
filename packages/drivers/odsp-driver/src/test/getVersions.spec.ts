@@ -9,7 +9,7 @@ import {
     IOdspResolvedUrl,
     ICacheEntry,
 } from "@fluidframework/odsp-driver-definitions";
-import { EpochTracker } from "../epochTracker";
+import { EpochTracker, defaultCacheExpiryTimeoutMs } from "../epochTracker";
 import {
     IOdspSnapshot,
     HostStoragePolicyInternal,
@@ -24,7 +24,7 @@ import { OdspDriverUrlResolver } from "../odspDriverUrlResolver";
 import { OdspDocumentStorageService } from "../odspDocumentStorageManager";
 import { mockFetchSingle, notFound, createResponse } from "./mockFetch";
 
-const createUtLocalCache = () => new LocalPersistentCache(10000);
+const createUtLocalCache = () => new LocalPersistentCache(2000);
 
 describe("Tests for snapshot fetch", () => {
     const siteUrl = "https://microsoft.sharepoint-df.com/siteUrl";
@@ -46,6 +46,7 @@ describe("Tests for snapshot fetch", () => {
     };
 
     const hostPolicy: HostStoragePolicyInternal = {
+        snapshotOptions: { timeout: 2000 },
         summarizerClient: false,
         fetchBinarySnapshotFormat: false,
         // for testing both network and cache fetch
@@ -78,8 +79,15 @@ describe("Tests for snapshot fetch", () => {
         sequenceNumber: 0,
     };
 
-    const value: IVersionedValueWithEpoch =
-    {value: content, fluidEpoch: "epoch1", version: persistedCacheValueVersion };
+    const value: IVersionedValueWithEpoch = { value: { ...content, cacheEntryTime: Date.now() },
+        fluidEpoch: "epoch1",
+        version: persistedCacheValueVersion };
+
+    // Set the cacheEntryTime to anything greater than the current maxCacheAge
+    const valueWithExpiredCache: IVersionedValueWithEpoch = {
+        value: { ...content, cacheEntryTime: Date.now() - defaultCacheExpiryTimeoutMs - 1000 },
+        fluidEpoch: "epoch1",
+        version: persistedCacheValueVersion };
 
     const expectedVersion = [{ id: "id", treeId: undefined!}];
 
@@ -179,9 +187,45 @@ describe("Tests for snapshot fetch", () => {
         let isCaught = false;
         try {
             await mockFetchSingle(
+                async () => service.getVersions(null,1),
+                // 404 response expected so network fetch throws
+                notFound,
+            );
+        } catch (error) {
+            isCaught = true;
+            assert.strictEqual(error.message, "odspFetchError [404] (undefined)", "incorrect error message");
+        }
+        // making sure network fetch did throw and catch block was executed
+        assert(isCaught, "catch block was not executed");
+    });
+
+    it("cache expires and network fetch succeeds", async () => {
+        const cacheEntry: ICacheEntry = {
+            key:"",
+            type: "snapshot",
+            file: { docId: hashedDocumentId, resolvedUrl } };
+        await localCache.put(cacheEntry, valueWithExpiredCache);
+
+        const version = await mockFetchSingle(
             async () => service.getVersions(null,1),
-            // 404 response expected so network fetch throws
-            notFound,
+            async () => createResponse({ "x-fluid-epoch": "epoch1" }, odspSnapshot, 200),
+        );
+        assert.deepStrictEqual(version, expectedVersion, "incorrect version");
+    });
+
+    it("cache expires and network fetch throws", async () => {
+        let isCaught = false;
+        const cacheEntry: ICacheEntry = {
+            key:"",
+            type: "snapshot",
+            file: { docId: hashedDocumentId, resolvedUrl } };
+        await localCache.put(cacheEntry, valueWithExpiredCache);
+
+        try {
+            await mockFetchSingle(
+                async () => service.getVersions(null,1),
+                // 404 response expected so network fetch throws
+                notFound,
             );
         } catch (error) {
             isCaught = true;

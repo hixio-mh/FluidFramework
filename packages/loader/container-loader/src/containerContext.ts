@@ -11,6 +11,8 @@ import {
     IResponse,
     IFluidCodeDetails,
     IFluidCodeDetailsComparer,
+    IProvideFluidCodeDetailsComparer,
+    FluidObject,
 } from "@fluidframework/core-interfaces";
 import {
     IAudience,
@@ -24,6 +26,7 @@ import {
     ILoaderOptions,
     IRuntimeFactory,
     ICodeLoader,
+    IProvideRuntimeFactory,
 } from "@fluidframework/container-definitions";
 import { IDocumentStorageService } from "@fluidframework/driver-definitions";
 import {
@@ -49,7 +52,7 @@ const PackageNotFactoryError = "Code package does not implement IRuntimeFactory"
 export class ContainerContext implements IContainerContext {
     public static async createOrLoad(
         container: Container,
-        scope: IFluidObject,
+        scope: FluidObject,
         codeLoader: ICodeDetailsLoader | ICodeLoader,
         codeDetails: IFluidCodeDetails,
         baseSnapshot: ISnapshotTree | undefined,
@@ -164,7 +167,7 @@ export class ContainerContext implements IContainerContext {
 
     constructor(
         private readonly container: Container,
-        public readonly scope: IFluidObject,
+        public readonly scope: IFluidObject & FluidObject,
         private readonly codeLoader: ICodeDetailsLoader | ICodeLoader,
         private readonly _codeDetails: IFluidCodeDetails,
         private readonly _baseSnapshot: ISnapshotTree | undefined,
@@ -186,6 +189,10 @@ export class ContainerContext implements IContainerContext {
             async () => this.loadCodeModule(_codeDetails),
         );
         this.attachListener();
+    }
+
+    public getSpecifiedCodeDetails(): IFluidCodeDetails | undefined {
+        return (this.quorum.get("code") ?? this.quorum.get("code2")) as IFluidCodeDetails | undefined;
     }
 
     public dispose(error?: Error): void {
@@ -263,7 +270,8 @@ export class ContainerContext implements IContainerContext {
         }
 
         const moduleWithDetails = await this._fluidModuleP;
-        const maybeCompareExport = moduleWithDetails.module?.fluidExport;
+        const maybeCompareExport: Partial<IProvideFluidCodeDetailsComparer> | undefined =
+            moduleWithDetails.module?.fluidExport;
         if (maybeCompareExport?.IFluidCodeDetailsComparer !== undefined) {
             comparers.push(maybeCompareExport.IFluidCodeDetailsComparer);
         }
@@ -296,7 +304,9 @@ export class ContainerContext implements IContainerContext {
     // #region private
 
     private async getRuntimeFactory(): Promise<IRuntimeFactory> {
-        const runtimeFactory = (await this._fluidModuleP).module?.fluidExport?.IRuntimeFactory;
+        const fluidExport: FluidObject<IProvideRuntimeFactory> | undefined =
+            (await this._fluidModuleP).module?.fluidExport;
+        const runtimeFactory = fluidExport?.IRuntimeFactory;
         if (runtimeFactory === undefined) {
             throw new Error(PackageNotFactoryError);
         }
